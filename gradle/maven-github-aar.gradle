@@ -1,0 +1,14 @@
+// 1.maven-插件
+apply plugin: 'maven'
+// 3.maven-路径
+uploadArchives {
+    repositories.mavenDeployer {
+        def deployPath = file(getProperty('aar.deployPath'))
+        repository(url: "file://${deployPath.absolutePath}")
+        pom.project {
+            groupId GROUP
+            artifactId POM_NAME
+            version VERSION_NAME
+        }
+    }
+}

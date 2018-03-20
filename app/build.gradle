@@ -34,4 +34,13 @@ dependencies {
 
     compile 'com.appsflyer:af-android-sdk:4+@aar'
     compile 'com.android.installreferrer:installreferrer:1.0'
+
 }
+
+
+
+
+
+
+
+
