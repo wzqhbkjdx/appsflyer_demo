@@ -18,7 +18,6 @@ public class BaseModuleManager {
 
     @Inject public IBase base;
 
-
-
+    @Inject public SynchronousExecutor synchronousExecutor; //主线程
 
 }

@@ -1,6 +1,7 @@
 package browser.iclick.com.main_frame.core;
 
 import android.app.Application;
+import android.os.Looper;
 
 import retrofit2.Call;
 import retrofit2.Retrofit;
@@ -37,4 +38,23 @@ public class BaseHelper {
         }
     }
 
+    public static boolean isMainLooperThread() {
+        return Looper.getMainLooper().getThread() != Thread.currentThread();
+    }
+
+    public static SynchronousExecutor mainLooper() {
+        return moduleManager.synchronousExecutor;
+    }
+
 }
+
+
+
+
+
+
+
+
+
+
+

@@ -1,6 +1,10 @@
 package browser.iclick.com.main_frame.core;
 
 import android.app.FragmentManager;
+import android.os.Build;
+import android.os.Looper;
+import android.os.Trace;
+import android.util.Log;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -8,6 +12,7 @@ import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Stack;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 import browser.iclick.com.main_frame.BaseActivity;
 import browser.iclick.com.main_frame.BaseBiz;
@@ -131,23 +136,150 @@ public class BaseStructureManager implements IBaseStructureManager {
 
     @Override
     public <B extends BaseBiz> ArrayList<B> bizList(Class<B> service) {
-        return null;
+        Stack<BaseStructureModel> stack = stackRepeatBiz.get(service);
+        ArrayList list = new ArrayList();
+        if(stack == null) {
+            return list;
+        }
+
+        int count = stack.size();
+
+        for(int i = 0; i < count; i++) {
+            BaseStructureModel baseStructureModel = stack.get(i);
+            if(baseStructureModel == null || baseStructureModel.getProxy() == null || baseStructureModel.getProxy().proxy == null) {
+                list.add(0, createNullService(service));
+            } else {
+                list.add(0, baseStructureModel.getProxy().proxy);
+            }
+        }
+        return list;
     }
 
     @Override
-    public <T> T createMainLooper(Class<T> service, Object ui) {
-        return null;
+    public <T> T createMainLooper(Class<T> service, final Object ui) {
+        BaseUtils.validateServiceInterface(service);
+        return (T) Proxy.newProxyInstance(service.getClassLoader(), new Class<?>[]{service}, new InvocationHandler() {
+            @Override
+            public Object invoke(Object proxy, final Method method, final Object[] args) throws Throwable {
+                //如果有返回值，直接执行
+                if(!method.getReturnType().equals(void.class)) {
+                    if(ui == null) {
+                        return null;
+                    }
+                    return method.invoke(ui, args);
+                }
+
+                //如果是主线程，直接执行
+                if(BaseHelper.isMainLooperThread()) {
+                    if(ui == null) {
+                        return null;
+                    }
+                    return method.invoke(ui, args);
+                }
+
+                //如果不是在主线程，则创建一个Runnable，放到主线程中执行
+                Runnable runnable = new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            if(ui == null) {
+                                return;
+                            }
+                            method.invoke(ui, args);
+                        } catch (Exception throwable) {
+                            if(BaseHelper.isLogOpen()) {
+                                throwable.printStackTrace();
+                            }
+                            return;
+                        }
+
+
+                    }
+                };
+                BaseHelper.mainLooper().execute(runnable);
+                return null;
+            }
+        });
     }
 
     @Override
-    public <T> T createMainLooperNotIntf(Class<T> service, Object ui) {
+    public <T> T createMainLooperNotIntf(final Class<T> service, final Object ui) {
+        Enhancer e = new Enhancer(BaseHelper.getInstance());
+        e.setSuperclass(service);
+        e.setInterceptor(new MethodInterceptor() {
+            @Override
+            public Object intercept(String name, Class[] argsType, final Object[] args) throws Exception {
+                final Method method = service.getMethod(name, argsType);
 
-        return null;
+                //如果有返回值，直接执行
+                if(!method.getReturnType().equals(void.class)) {
+                    if(ui == null) {
+                        return null;
+                    }
+                    return method.invoke(ui, args);
+                }
+
+                //如果是主线程，直接执行
+                Runnable runnable = new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            if(ui == null) {
+                                return;
+                            }
+                            method.invoke(ui, args);
+                        } catch (Exception throwable) {
+                            if(BaseHelper.isLogOpen()) {
+                                throwable.printStackTrace();
+                            }
+                        }
+                    }
+                };
+
+                //不在主线程，则new一个Runnable扔到主线程中去执行
+                BaseHelper.mainLooper().execute(runnable);
+                return null;
+            }
+        });
+        return (T) e.create();
     }
 
     @Override
-    public <T> BaseProxy createNotIntf(Class superClazz, Object impl) {
-        return null;
+    public <T> BaseProxy createNotIntf(final Class superClazz, Object impl) {
+        final BaseProxy baseProxy = new BaseProxy();
+        baseProxy.impl = impl;
+        Enhancer e = new Enhancer(BaseHelper.getInstance());
+        e.setSuperclass(superClazz);
+        e.setInterceptor(new MethodInterceptor() {
+            @Override
+            public Object intercept(String name, Class[] argsType, Object[] args) throws Exception {
+                Method method = superClazz.getMethod(name, argsType);
+
+                //如果有返回值，直接执行
+                if(!method.getReturnType().equals(void.class)) {
+                    return method.invoke(baseProxy.impl, args);
+                }
+
+                BaseMethod baseMethod = loadBaseMethod(baseProxy, method, superClazz);
+
+                if(BaseHelper.isLogOpen()) {
+                    return baseMethod.invoke(baseProxy.impl, args);
+                }
+
+                enterMethod(method, args);
+                long startNanos = System.nanoTime();
+
+                Object result = baseMethod.invoke(baseProxy.impl, args);
+
+                long stopNanos = System.nanoTime();
+                long lengthMillis = TimeUnit.NANOSECONDS.toMillis(stopNanos - startNanos);
+
+                exitMethod(method, result, lengthMillis);
+                return result;
+            }
+        });
+        baseProxy.proxy = e.create();
+        return baseProxy;
     }
 
     @Override
@@ -256,6 +388,79 @@ public class BaseStructureManager implements IBaseStructureManager {
     @Override
     public void printBackStackEntry(FragmentManager fragmentManager) {
 
+    }
+
+    private <T> BaseMethod loadBaseMethod(BaseProxy baseProxy, Method method, Class<T> service) {
+        synchronized (baseProxy.methodCache) {
+            String methodKey = getKey(method, method.getParameterTypes());
+            BaseMethod baseMethod = baseProxy.methodCache.get(methodKey);
+            if(baseMethod == null) {
+                baseMethod = BaseMethod.createBizMethod(method, service);
+            }
+            return baseMethod;
+        }
+    }
+
+    private String getKey(Method method, Class[] classes) {
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append(method.getName());
+        stringBuilder.append("(");
+        for (Class clazz : classes) {
+            stringBuilder.append(clazz.getSimpleName());
+            stringBuilder.append(",");
+        }
+        if (stringBuilder.length() > 2) {
+            stringBuilder.deleteCharAt(stringBuilder.toString().length() - 1);
+        }
+        stringBuilder.append(")");
+        return stringBuilder.toString();
+    }
+
+    private void enterMethod(Method method, Object... args) {
+        Class<?> cls = method.getDeclaringClass();
+        String methodName = method.getName();
+        Object[] parameterValues = args;
+        StringBuilder builder = new StringBuilder("\u21E2 ");
+        builder.append(methodName).append('(');
+        if(parameterValues != null) {
+            for(int i = 0; i < parameterValues.length; i++) {
+                if(i > 0) {
+                    builder.append(", ");
+                }
+                builder.append(Strings.toString(parameterValues[i]));
+            }
+        }
+
+        builder.append(')');
+
+        if(Looper.myLooper() != Looper.getMainLooper()) {
+            builder.append(" [Thread:\"").append(Thread.currentThread().getName()).append("\"]");
+        }
+
+        Log.v(cls.getSimpleName(), builder.toString());
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
+            final String section = builder.toString().substring(2);
+            Trace.beginSection(section);
+        }
+
+    }
+
+    private void exitMethod(Method method, Object result, long lengthMillis) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
+            Trace.endSection();
+        }
+        Class<?> cls = method.getDeclaringClass();
+        String methodName = method.getName();
+        boolean hasReturnType = method.getReturnType() != void.class;
+
+        StringBuilder builder = new StringBuilder("\u21E0 ").append(methodName).append(" [").append(lengthMillis).append("ms]");
+
+        if (hasReturnType) {
+            builder.append(" = ");
+            builder.append(Strings.toString(result));
+        }
+        Log.v(cls.getSimpleName(), builder.toString());
     }
 
 
