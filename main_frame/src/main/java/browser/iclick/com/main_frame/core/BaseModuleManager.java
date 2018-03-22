@@ -20,4 +20,8 @@ public class BaseModuleManager {
 
     @Inject public SynchronousExecutor synchronousExecutor; //主线程
 
+    @Inject public BaseScreenManager baseScreenManager;
+
+    @Inject public BaseStructureManager baseStructureManager;
+
 }

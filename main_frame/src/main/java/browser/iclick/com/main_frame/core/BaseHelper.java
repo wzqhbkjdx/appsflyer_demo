@@ -46,6 +46,14 @@ public class BaseHelper {
         return moduleManager.synchronousExecutor;
     }
 
+    public static BaseScreenManager screenHelper() {
+        return moduleManager.baseScreenManager;
+    }
+
+    public static BaseStructureManager structureHelper() {
+        return moduleManager.baseStructureManager;
+    }
+
 }
 
 
