@@ -1,5 +1,6 @@
 package browser.iclick.com.main_frame.core;
 
+
 import retrofit2.Retrofit;
 
 /**
@@ -8,9 +9,22 @@ import retrofit2.Retrofit;
 
 public interface IBase {
 
+    /**
+     * 日志是否打印
+     * @return
+     */
     boolean isLogOpen();
 
+    /**
+     * 获取网络适配器
+     * @param builder
+     * @return
+     */
     Retrofit.Builder httpAdapter(Retrofit.Builder builder);
+
+
+
+    // TODO: 2018/3/22
 
     IBase IBASE = new IBase() {
         @Override

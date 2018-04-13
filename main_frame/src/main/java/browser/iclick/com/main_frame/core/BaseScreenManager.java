@@ -122,8 +122,13 @@ public class BaseScreenManager {
     }
 
 
-    // TODO: 2018/3/21
-
+    public <A> A getPreviousActivity() {
+        int count = activities.size();
+        if(count < 2) {
+            return null;
+        }
+        return (A) activities.get(count - 2).getActivity();
+    }
 }
 
 

@@ -28,7 +28,7 @@ public class BaseStructureModel {
 
     private Object biz;
 
-    BaseStructureModel(Object view, Bundle bundle) {
+    public BaseStructureModel(Object view, Bundle bundle) {
         //唯一标记
         key = view.hashCode();
         //视图
